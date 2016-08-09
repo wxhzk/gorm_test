@@ -25,8 +25,8 @@ type User struct {
 	Account    string     `gorm:"type:varchar(64);not null;default '';unique"`
 	Passwd     string     `gorm:"type:varchar(64);not null;default '' "`
 	Type       uint32     `gorm:"not null;default 0;"`
-	Emails     []Email    //`gorm:"ForeignKey:UserId"` //不会主动加外键，需要自己添加
-	Languages  []Language `gorm:"many2many:user_languages"`
+	Emails     []Email    //`gorm:"ForeignKey:UserId"` //不会主动加外键，需要自己添加；此处加不加外键声明效果一样
+	Languages  []Language `gorm:"many2many:user_languages"` //此处不加many2many后面会有问题，并且不会自动创建user_languages表
 	CreditCard CreditCard
 }
 
@@ -52,6 +52,7 @@ func test() {
 	db.DropTableIfExists(&Email{}, &User{}, &CreditCard{}, &Language{})
 	//db.Set("gorm:table_options", "ENGINE=MyISAM CHARSET=utf8 COLLATE=utf8_unicode_ci")
 	db.Set("gorm:table_options", "ENGINE=InnoDB CHARSET=utf8 COLLATE=utf8_unicode_ci").AutoMigrate(&User{}, &CreditCard{}, &Email{}, &Language{})
+	//db.AutoMigrate(&User{}) //这句仅仅创建users, user_languages两个表
 	db.Model(&Email{}).ModifyColumn("user_id", "bigint(20) unsigned not null default 0")
 	//外键可不添加
 	//db.Model(&Email{}).AddForeignKey("user_id", "users(id)", "RESTRICT", "RESTRICT")
@@ -86,12 +87,51 @@ func test() {
 	//db.Model(&u1).Related(&u1.Emails) //功能同上
 	db.Find(&u1.Emails, "user_id=?", u1.Id)
 	fmt.Printf("%+v\n", u1)
+	var l1 Language
+	db.FirstOrInit(&l1, Language{Code: "not"})
+	fmt.Println(l1) //{o,not}
+	db.FirstOrInit(&l1, Language{Code: "en"})
+	fmt.Println(l1) //{2,en, en}
 	var l2 Language
-	db.Where("code=?", "en").FirstOrInit(&l2) //{2,en,en}
-	fmt.Println(l2)                           //{2,en,en}
-	l2.Id = 0
-	db.Where("code=?", "en").FirstOrInit(&l2, Language{Id: 5, Code: "jp", Name: "jp"})
-	fmt.Println(l2) //{5,jp,jp}
+	l2.Id = 1
+	//FirstOrInit 函数会根据传入条件和目标对象Id(非0id)来查询，查到则结果复制给目标对象，没查到则条件复制给目标对象
+	db.Where(Language{Code: "Chinese"}).FirstOrInit(&l2)
+	fmt.Println(l2)
+	db.Where(Language{Code: "en"}).FirstOrInit(&l1) //{2,en,en}
+	fmt.Println(l1)                                 //{2,en,jp}
+	db.Where(Language{Code: "Chinese"}).FirstOrInit(&l1)
+	fmt.Println(l1) //{2,en,Chinese} //这里会使用id和code作为查询条件，查不到，就把code复制给目标对象
+	l1.Code = "tmp"
+	db.Where("code = ?", "Chinese").FirstOrInit(&l1)
+	fmt.Println(l1) //{2,en,tmp}
+	l1.Id = 1
+	db.Where("code = ?", "en").FirstOrInit(&l1)
+	fmt.Println(l1) //{2,en,en}
+	//var l3 Language
+	db.FirstOrInit(&l1, Language{Code: "jp", Name: "jp"})
+	fmt.Println(l1) //{2,jp,jp} //后面的条件没找到的话就将条件内容复制给l1
+	l1.Id = 9
+	db.Where("code = ?", "en").FirstOrInit(&l1, Language{Code: "xxx", Name: "jp"})
+	fmt.Println(l1) //{9,jp,xxx}
+	var ll Language
+	db.Where("code = ?", "Chinese").First(&ll)
+	fmt.Println(ll)
+	db.Where("code = ?", "en").First(&ll)
+	fmt.Println(ll)
+
+	var u2 User
+	db.Select("passwd, account").First(&u2)
+	fmt.Println(u2)
+
+	var le Language
+	db.Order("id desc").First(&le)
+	fmt.Println(le)
+
+	var codes []string
+	db.Table("languages").Pluck("code", &codes)
+	fmt.Println(codes)
+	//db.Table("languages").Select("code").Find(&codes)//Find不能用于填充部分单个字段
+	//fmt.Println(codes)
 }
 
 func main() {
